@@ -341,6 +341,12 @@
 330	common	pkey_alloc		__x64_sys_pkey_alloc
 331	common	pkey_free		__x64_sys_pkey_free
 332	common	statx			__x64_sys_statx
+333 common  as_create       __x64_sys_as_create
+334 common  as_mmap         __x64_sys_as_mmap
+335 common  as_munmap       __x64_sys_as_munmap
+336 common  as_mprotect     __x64_sys_as_mprotect
+337 common  as_switch_mm    __x64_sys_as_switch_mm
+338 common  as_destroy      __x64_sys_as_destroy
 
 #
 # x32-specific system call numbers start at 512 to avoid cache impact
