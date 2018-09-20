@@ -1356,13 +1356,12 @@ static inline bool file_mmap_ok(struct file *file, struct inode *inode,
 /*
  * The caller must hold down_write(&current->mm->mmap_sem).
  */
-unsigned long do_mmap(struct file *file, unsigned long addr,
-			unsigned long len, unsigned long prot,
+unsigned long do_mmap2(struct mm_struct *mm, struct file *file,
+            unsigned long addr, unsigned long len, unsigned long prot,
 			unsigned long flags, vm_flags_t vm_flags,
 			unsigned long pgoff, unsigned long *populate,
 			struct list_head *uf)
 {
-	struct mm_struct *mm = current->mm;
 	int pkey = 0;
 
 	*populate = 0;
@@ -1532,7 +1531,7 @@ unsigned long do_mmap(struct file *file, unsigned long addr,
 			vm_flags |= VM_NORESERVE;
 	}
 
-	addr = mmap_region(file, addr, len, vm_flags, pgoff, uf);
+	addr = mmap_region2(mm, file, addr, len, vm_flags, pgoff, uf);
 	if (!IS_ERR_VALUE(addr) &&
 	    ((vm_flags & VM_LOCKED) ||
 	     (flags & (MAP_POPULATE | MAP_NONBLOCK)) == MAP_POPULATE))
@@ -1540,8 +1539,18 @@ unsigned long do_mmap(struct file *file, unsigned long addr,
 	return addr;
 }
 
-unsigned long ksys_mmap_pgoff(unsigned long addr, unsigned long len,
-			      unsigned long prot, unsigned long flags,
+unsigned long do_mmap(struct file *file, unsigned long addr,
+            unsigned long len, unsigned long prot,
+			unsigned long flags, vm_flags_t vm_flags,
+			unsigned long pgoff, unsigned long *populate,
+			struct list_head *uf)
+{
+    return do_mmap2(current->mm, file, addr, len, prot, flags, vm_flags,
+                    pgoff, populate, uf);
+}
+
+unsigned long ksys_mmap_pgoff2(struct mm_struct *mm, unsigned long addr,
+                  unsigned long len, unsigned long prot, unsigned long flags,
 			      unsigned long fd, unsigned long pgoff)
 {
 	struct file *file = NULL;
@@ -1582,11 +1591,18 @@ unsigned long ksys_mmap_pgoff(unsigned long addr, unsigned long len,
 
 	flags &= ~(MAP_EXECUTABLE | MAP_DENYWRITE);
 
-	retval = vm_mmap_pgoff(file, addr, len, prot, flags, pgoff);
+	retval = vm_mmap_pgoff2(mm, file, addr, len, prot, flags, pgoff);
 out_fput:
 	if (file)
 		fput(file);
 	return retval;
+}
+
+unsigned long ksys_mmap_pgoff(unsigned long addr, unsigned long len,
+			      unsigned long prot, unsigned long flags,
+			      unsigned long fd, unsigned long pgoff)
+{
+    return ksys_mmap_pgoff2(current->mm, addr, len, prot, flags, fd, pgoff);
 }
 
 SYSCALL_DEFINE6(mmap_pgoff, unsigned long, addr, unsigned long, len,
@@ -1674,11 +1690,10 @@ static inline int accountable_mapping(struct file *file, vm_flags_t vm_flags)
 	return (vm_flags & (VM_NORESERVE | VM_SHARED | VM_WRITE)) == VM_WRITE;
 }
 
-unsigned long mmap_region(struct file *file, unsigned long addr,
-		unsigned long len, vm_flags_t vm_flags, unsigned long pgoff,
-		struct list_head *uf)
+unsigned long mmap_region2(struct mm_struct *mm, struct file *file,
+        unsigned long addr, unsigned long len, vm_flags_t vm_flags,
+        unsigned long pgoff, struct list_head *uf)
 {
-	struct mm_struct *mm = current->mm;
 	struct vm_area_struct *vma, *prev;
 	int error;
 	struct rb_node **rb_link, *rb_parent;
@@ -1837,6 +1852,12 @@ unacct_error:
 	return error;
 }
 
+unsigned long mmap_region(struct file *file, unsigned long addr,
+		unsigned long len, vm_flags_t vm_flags, unsigned long pgoff,
+		struct list_head *uf)
+{
+    return mmap_region2(current->mm, file, addr, len, vm_flags, pgoff, uf);
+}
 unsigned long unmapped_area(struct vm_unmapped_area_info *info)
 {
 	/*

@@ -453,7 +453,7 @@ fail:
 /*
  * pkey==-1 when doing a legacy mprotect()
  */
-static int do_mprotect_pkey(unsigned long start, size_t len,
+int do_mprotect_pkey2(struct mm_struct *mm, unsigned long start, size_t len,
 		unsigned long prot, int pkey)
 {
 	unsigned long nstart, end, tmp, reqprot;
@@ -480,7 +480,7 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 
 	reqprot = prot;
 
-	if (down_write_killable(&current->mm->mmap_sem))
+	if (down_write_killable(&mm->mmap_sem))
 		return -EINTR;
 
 	/*
@@ -488,10 +488,10 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 	 * them use it here.
 	 */
 	error = -EINVAL;
-	if ((pkey != -1) && !mm_pkey_is_allocated(current->mm, pkey))
+	if ((pkey != -1) && !mm_pkey_is_allocated(mm, pkey))
 		goto out;
 
-	vma = find_vma(current->mm, start);
+	vma = find_vma(mm, start);
 	error = -ENOMEM;
 	if (!vma)
 		goto out;
@@ -570,8 +570,14 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 		prot = reqprot;
 	}
 out:
-	up_write(&current->mm->mmap_sem);
+	up_write(&mm->mmap_sem);
 	return error;
+}
+
+static int do_mprotect_pkey(unsigned long start, size_t len,
+		unsigned long prot, int pkey)
+{
+    return do_mprotect_pkey2(current->mm, start, len, prot, pkey);
 }
 
 SYSCALL_DEFINE3(mprotect, unsigned long, start, size_t, len,

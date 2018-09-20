@@ -67,6 +67,7 @@ struct perf_event_attr;
 struct file_handle;
 struct sigaltstack;
 union bpf_attr;
+struct mm_struct;
 
 #include <linux/types.h>
 #include <linux/aio_abi.h>
@@ -1146,6 +1147,9 @@ static inline int ksys_fadvise64_64(int fd, loff_t offset, loff_t len,
 #endif
 unsigned long ksys_mmap_pgoff(unsigned long addr, unsigned long len,
 			      unsigned long prot, unsigned long flags,
+			      unsigned long fd, unsigned long pgoff);
+unsigned long ksys_mmap_pgoff2(struct mm_struct *mm, unsigned long addr,
+                  unsigned long len, unsigned long prot, unsigned long flags,
 			      unsigned long fd, unsigned long pgoff);
 ssize_t ksys_readahead(int fd, loff_t offset, size_t count);
 
