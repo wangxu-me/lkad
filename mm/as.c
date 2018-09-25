@@ -20,12 +20,18 @@
 #include <asm/mmu_context.h>
 #include "as.h"
 
+
+#define DEBUG
 // static long mm_nr = 0;
 
 static int as_release(struct inode *inode, struct file *file);
+#ifdef DEBUG
+static void dump_pt_regs(struct pt_regs *reg);
+#endif
+static long do_as_switch_mm(unsigned int fd);
 struct file_operations as_fops = {
     .release = as_release,
-    };
+};
 
 
 static struct mm_struct *get_mm_from_fd(int fd)
@@ -66,6 +72,46 @@ SYSCALL_DEFINE0(as_create)
         return fd;
     }
 
+    /* add to mmlist? */
+    spin_lock(&mmlist_lock);
+    list_add(&mm->mmlist, &current->mm->mmlist);
+    /* looks like we will never go back to the initial mm..
+     * Therefore, let it vanish
+     * */
+#if 0
+    if (!mm_nr) {
+        mmget(current->mm);
+        mm_nr++;
+    }
+#endif
+    spin_unlock(&mmlist_lock);
+
+    return fd;
+}
+
+/* copy mm struct from current mm struct.
+ * used for test code. Or might be usefull..
+ * However, this is COW. Therfore, If we switch to
+ * this mm later, it results in weird execution path
+ * and segv..
+ * */
+SYSCALL_DEFINE0(as_copy)
+{
+    int fd, ret;
+    struct mm_struct *mm;
+    struct task_struct *task;
+
+    task = current;
+    mm = dup_mm(task);
+    if (!mm) {
+        return -ENOMEM;
+    }
+
+    fd = anon_inode_getfd("[adress-space]", &as_fops, mm, 0);
+    if (fd < 0) {
+        mmput(mm);
+        return fd;
+    }
 
     /* add to mmlist? */
     spin_lock(&mmlist_lock);
@@ -80,6 +126,14 @@ SYSCALL_DEFINE0(as_create)
     }
 #endif
     spin_unlock(&mmlist_lock);
+
+#ifdef DEBUG
+    ret = do_as_switch_mm(fd);
+    if (ret) {
+        __close_fd(current->files, fd);
+        return ret;
+    }
+#endif
 
     return fd;
 }
@@ -137,11 +191,25 @@ SYSCALL_DEFINE4(as_mprotect, unsigned int, fd, unsigned long, addr,
     return do_mprotect_pkey2(mm, addr, len, prot, -1);;
 }
 
-SYSCALL_DEFINE1(as_switch_mm, unsigned int, fd)
+static long do_as_switch_mm(unsigned int fd)
 {
     struct mm_struct *mm, *old_mm, *active_mm;
     struct task_struct *tsk = current;
+    struct pt_regs *old, *new;
+    mm_segment_t oldfs;
+    unsigned long oldfs2, oldgs;
+    unsigned int fsindex, gsindex;
 
+    oldfs = get_fs();
+    rdmsrl(MSR_FS_BASE, oldfs2);
+    rdmsrl(MSR_KERNEL_GS_BASE, oldgs);
+    savesegment(fs, fsindex);
+    savesegment(gs, gsindex);
+#ifdef DEBUG
+    printk(KERN_INFO "oldfs[%lx], fsbase[%lx], gsbase[%lx]\n", oldfs.seg,
+            oldfs2, oldgs);
+    printk(KERN_INFO "fsindex[%x], gsindex[%x]\n", fsindex, gsindex);
+#endif
     mm = get_mm_from_fd(fd);
     if (IS_ERR(mm)) {
         return PTR_ERR(mm);
@@ -152,6 +220,14 @@ SYSCALL_DEFINE1(as_switch_mm, unsigned int, fd)
     if (mm == old_mm || mm == tsk->active_mm) {
         return 0;
     }
+
+#ifdef DEBUG
+    /* check pt_regs before and after switch mm.
+     * looks like the return address is messed up.. 
+     * */
+    old = task_pt_regs(current);
+    dump_pt_regs(old);
+#endif
 
     mm_release(tsk, old_mm);
 
@@ -179,17 +255,34 @@ SYSCALL_DEFINE1(as_switch_mm, unsigned int, fd)
     /* simply mmput/mmdrop will cause the initial mm of this task
      * vanish.. hmmm.. Not sure if need to keep it.
      * */
+#ifdef DEBUG
+    new = task_pt_regs(current);
+    dump_pt_regs(new);
+#endif
     if (old_mm) {
         up_read(&old_mm->mmap_sem);
         BUG_ON(active_mm != old_mm);
         setmax_mm_hiwater_rss(&tsk->signal->maxrss, old_mm);
         mm_update_next_owner(old_mm);
         mmput(old_mm);
-        return 0;
+        goto out;
     }
     
     mmdrop(active_mm);
+
+out:
+//    set_fs(oldfs);
+    set_fs(USER_DS);
+    wrmsrl(MSR_FS_BASE, oldfs2);
+    wrmsrl(MSR_KERNEL_GS_BASE, oldgs);
+    loadsegment(fs, fsindex);
+    load_gs_index(gsindex);
     return 0;
+}
+
+SYSCALL_DEFINE1(as_switch_mm, unsigned int, fd)
+{
+    return do_as_switch_mm(fd);
 }
 
 SYSCALL_DEFINE1(as_destroy, unsigned int, fd)
@@ -215,3 +308,37 @@ static int as_release(struct inode *inode, struct file *file)
     mmput(mm);
     return 0;
 }
+
+#ifdef DEBUG
+static void dump_pt_regs(struct pt_regs *reg)
+{
+    int i = 0;
+    char *c, ch;
+    printk(KERN_INFO "r15[%lx], r14[%lx], r13[%lx], r12[%lx]\n",
+            reg->r15, reg->r14, reg->r13, reg->r12);
+    printk(KERN_INFO "bp[%lx], bx[%lx], r11[%lx], r10[%lx]\n",
+            reg->bp, reg->bx, reg->r11, reg->r10);
+    printk(KERN_INFO "r9[%lx], r8[%lx], ax[%lx], cx[%lx]\n",
+            reg->r9, reg->r8, reg->ax, reg->cx);
+    printk(KERN_INFO "dx[%lx], si[%lx], di[%lx], orig_ax[%lx]\n",
+            reg->dx, reg->si, reg->di, reg->orig_ax);
+    printk(KERN_INFO "ip[%lx], cs[%lx], flags[%lx], sp[%lx]\n",
+            reg->ip, reg->cs, reg->flags, reg->sp);
+    printk(KERN_INFO "ss[%lx]\n", reg->ss);
+#if 0
+    printk(KERN_INFO "dump instructions:\n");
+    c = (char *)reg->ip;
+    for (i = 0; i < 50; i++, c++) {
+        if (get_user(ch, c)) {
+            printk(KERN_INFO "bug ");
+            continue;
+        }
+        printk(KERN_INFO "%02x ", ch);
+        if (i % 10 == 9) {
+            printk(KERN_INFO "\n");
+        }
+    }
+#endif
+    return;
+}
+#endif

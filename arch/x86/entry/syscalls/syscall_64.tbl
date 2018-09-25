@@ -347,6 +347,7 @@
 336 common  as_mprotect     __x64_sys_as_mprotect
 337 common  as_switch_mm    __x64_sys_as_switch_mm
 338 common  as_destroy      __x64_sys_as_destroy
+339 common  as_copy         __x64_sys_as_copy
 
 #
 # x32-specific system call numbers start at 512 to avoid cache impact
