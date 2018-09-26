@@ -5,7 +5,7 @@
 #include <linux/kernel.h>
 
 extern struct file *get_empty_filp(void);
-extern struct mm_struct *dup_mm(struct task_struct *task);
+extern struct mm_struct *dup_mm_nocow(struct task_struct *task);
 
 struct mmap_info {
     unsigned long addr;
