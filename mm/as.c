@@ -97,12 +97,12 @@ SYSCALL_DEFINE0(as_create)
  * */
 SYSCALL_DEFINE0(as_copy)
 {
-    int fd, ret;
+    int fd, ret __attribute__((__unused__));
     struct mm_struct *mm;
     struct task_struct *task;
 
     task = current;
-    mm = dup_mm(task);
+    mm = dup_mm_nocow(task);
     if (!mm) {
         return -ENOMEM;
     }
@@ -127,12 +127,14 @@ SYSCALL_DEFINE0(as_copy)
 #endif
     spin_unlock(&mmlist_lock);
 
+#if 0
 #ifdef DEBUG
     ret = do_as_switch_mm(fd);
     if (ret) {
         __close_fd(current->files, fd);
         return ret;
     }
+#endif
 #endif
 
     return fd;
@@ -200,12 +202,16 @@ static long do_as_switch_mm(unsigned int fd)
     unsigned long oldfs2, oldgs;
     unsigned int fsindex, gsindex;
 
+//#undef SET_REGS
+#define SET_REGS
+#ifdef SET_REGS
     oldfs = get_fs();
     rdmsrl(MSR_FS_BASE, oldfs2);
     rdmsrl(MSR_KERNEL_GS_BASE, oldgs);
     savesegment(fs, fsindex);
     savesegment(gs, gsindex);
-#ifdef DEBUG
+#endif
+#if defined(DEBUG) && defined(SET_REGS)
     printk(KERN_INFO "oldfs[%lx], fsbase[%lx], gsbase[%lx]\n", oldfs.seg,
             oldfs2, oldgs);
     printk(KERN_INFO "fsindex[%x], gsindex[%x]\n", fsindex, gsindex);
@@ -271,12 +277,20 @@ static long do_as_switch_mm(unsigned int fd)
     mmdrop(active_mm);
 
 out:
-//    set_fs(oldfs);
-    set_fs(USER_DS);
-    wrmsrl(MSR_FS_BASE, oldfs2);
-    wrmsrl(MSR_KERNEL_GS_BASE, oldgs);
+#ifdef SET_REGS
+    /* Not sure why we need this..
+     * lldt will not affect fs and gs..
+     * maybe loadsegment(fs, 0) and load_gs_index(0) in
+     * deactivate_mm() affects this? I don't know, just need
+     * to set these to work. 
+     * */
+    set_fs(oldfs);
+//    set_fs(USER_DS);
     loadsegment(fs, fsindex);
+    wrmsrl(MSR_FS_BASE, oldfs2);
     load_gs_index(gsindex);
+    wrmsrl(MSR_KERNEL_GS_BASE, oldgs);
+#endif
     return 0;
 }
 
@@ -312,8 +326,8 @@ static int as_release(struct inode *inode, struct file *file)
 #ifdef DEBUG
 static void dump_pt_regs(struct pt_regs *reg)
 {
-    int i = 0;
-    char *c, ch;
+    int i __attribute__((__unused__)) = 0;
+    char *c __attribute__((__unused__)), ch __attribute__((__unused__));
     printk(KERN_INFO "r15[%lx], r14[%lx], r13[%lx], r12[%lx]\n",
             reg->r15, reg->r14, reg->r13, reg->r12);
     printk(KERN_INFO "bp[%lx], bx[%lx], r11[%lx], r10[%lx]\n",
@@ -325,6 +339,11 @@ static void dump_pt_regs(struct pt_regs *reg)
     printk(KERN_INFO "ip[%lx], cs[%lx], flags[%lx], sp[%lx]\n",
             reg->ip, reg->cs, reg->flags, reg->sp);
     printk(KERN_INFO "ss[%lx]\n", reg->ss);
+
+    printk(KERN_INFO "thread fsindex[%x], thread gsindex[%x], "
+                     "thread fsbase[%lx], thread gsbase[%lx]\n", 
+                     current->thread.fsindex, current->thread.gsindex,
+                     current->thread.fsbase, current->thread.gsbase);
 #if 0
     printk(KERN_INFO "dump instructions:\n");
     c = (char *)reg->ip;
