@@ -56,14 +56,25 @@ out:
     return mm;
 }
 
-SYSCALL_DEFINE0(as_create)
+/* 0 to get mm struct currently in use.
+ * 1 to create a new empty mm struct.
+ * */
+SYSCALL_DEFINE1(as_create, int, create)
 {
     int fd;
     struct mm_struct *mm;
 
-    mm = mm_alloc();
-    if (!mm) {
-        return -ENOMEM;
+    if (create) {
+        mm = mm_alloc();
+        if (!mm) {
+            return -ENOMEM;
+        }
+    } else {
+        mm = current->mm;
+        if (!mm) {
+            return -EINVAL;
+        }
+        mmget(mm);
     }
 
     fd = anon_inode_getfd("[adress-space]", &as_fops, mm, 0);
