@@ -6,6 +6,11 @@
 
 extern struct file *get_empty_filp(void);
 extern struct mm_struct *dup_mm_nocow(struct task_struct *task);
+extern struct mm_struct *dup_mm(struct task_struct *task);
+extern struct mm_struct *dup_mm_nocow2(struct task_struct *task,
+                                        struct mm_struct *oldmm);
+extern struct mm_struct *dup_mm2(struct task_struct *task,
+                                struct mm_struct *oldmm);
 
 struct mmap_info {
     unsigned long addr;

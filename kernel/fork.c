@@ -1402,9 +1402,9 @@ void mm_release(struct task_struct *tsk, struct mm_struct *mm)
  * Allocate a new mm structure and copy contents from the
  * mm structure of the passed in task structure.
  */
-struct mm_struct *dup_mm(struct task_struct *tsk)
+struct mm_struct *dup_mm2(struct task_struct *tsk, struct mm_struct *oldmm)
 {
-	struct mm_struct *mm, *oldmm = current->mm;
+	struct mm_struct *mm;
 	int err;
 
 	mm = allocate_mm();
@@ -1437,10 +1437,15 @@ fail_nomem:
 	return NULL;
 }
 
-/* dup mm without COW. */
-struct mm_struct *dup_mm_nocow(struct task_struct *tsk)
+struct mm_struct *dup_mm(struct task_struct *tsk)
 {
-	struct mm_struct *mm, *oldmm = current->mm;
+    return dup_mm2(tsk, current->mm);
+}
+
+/* dup mm without COW. */
+struct mm_struct *dup_mm_nocow2(struct task_struct *tsk, struct mm_struct *oldmm)
+{
+	struct mm_struct *mm;
 	int err;
 
 	mm = allocate_mm();
@@ -1471,6 +1476,11 @@ free_pt:
 
 fail_nomem:
 	return NULL;
+}
+
+struct mm_struct *dup_mm_nocow(struct task_struct *tsk)
+{
+    return dup_mm_nocow2(tsk, current->mm);
 }
 
 static int copy_mm(unsigned long clone_flags, struct task_struct *tsk)

@@ -29,6 +29,8 @@ static int as_release(struct inode *inode, struct file *file);
 static void dump_pt_regs(struct pt_regs *reg);
 #endif
 static long do_as_switch_mm(unsigned int fd);
+static long do_as_copy(unsigned int oldfd, int cow);
+
 struct file_operations as_fops = {
     .release = as_release,
 };
@@ -100,20 +102,38 @@ SYSCALL_DEFINE1(as_create, int, create)
     return fd;
 }
 
-/* copy mm struct from current mm struct.
- * used for test code. Or might be usefull..
- * However, this is COW. Therfore, If we switch to
- * this mm later, it results in weird execution path
- * and segv..
+/* oldfd == -1, copy current mm
+ * oldfd != -1, copy mm from fd
+ * cow: indicate if cow
  * */
-SYSCALL_DEFINE0(as_copy)
+static long do_as_copy(unsigned int oldfd, int cow)
 {
     int fd, ret __attribute__((__unused__));
-    struct mm_struct *mm;
+    struct mm_struct *mm, *oldmm;
     struct task_struct *task;
 
     task = current;
-    mm = dup_mm_nocow(task);
+
+    if (oldfd == -1) {
+        if (cow) {
+            mm = dup_mm(task);
+        } else {
+            mm = dup_mm_nocow(task);
+        }
+    } else {
+        oldmm = get_mm_from_fd(oldfd);
+
+        if (IS_ERR(oldmm)) {
+            return PTR_ERR(oldmm);
+        }
+
+        if (cow) {
+            mm = dup_mm2(task, oldmm);
+        } else {
+            mm = dup_mm_nocow2(task, oldmm);
+        }
+    }
+
     if (!mm) {
         return -ENOMEM;
     }
@@ -149,6 +169,22 @@ SYSCALL_DEFINE0(as_copy)
 #endif
 
     return fd;
+}
+
+/* copy mm struct from current mm struct.
+ * used for test code. Or might be usefull..
+ * However, this is COW. Therfore, If we switch to
+ * this mm later, it results in weird execution path
+ * and segv..
+ * */
+SYSCALL_DEFINE2(as_copy, unsigned int, oldfd, int, cow)
+{
+    return do_as_copy(oldfd, cow);
+}
+
+SYSCALL_DEFINE0(as_dup)
+{
+    return do_as_copy(-1, 1);
 }
 
 SYSCALL_DEFINE2(as_mmap, unsigned int, fd, struct mmap_info __user *, info)
